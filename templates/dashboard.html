@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Панель управления</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-light bg-light">
+        <div class="container">
+            <a class="navbar-brand">Расчет ремонта</a>
+            {% if user %}
+                <a href="/logout" class="btn btn-outline-danger">Выйти</a>
+            {% else %}
+                <a href="/login" class="btn btn-outline-primary">Вход</a>
+                <a href="/register" class="btn btn-outline-success">Регистрация</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% if user %}
+            <button onclick="window.location='/create_order'" class="btn btn-primary">Создать заказ</button>
+            <button onclick="window.location='/orders'" class="btn btn-secondary">Просмотреть заказы</button>
+            {% if user.role == 'admin' %}
+                <button onclick="window.location='/admin'" class="btn btn-warning">Админ-панель</button>
+            {% endif %}
+        {% endif %}
+    </div>
+
+    <script>
+        function loadSession() {
+            return fetch('/data')
+                .then(response => response.json())
+                .then(data => {
+                    window.contractors = data.contractors;
+                    window.materials = data.materials;
+                    window.objects = data.objects;
+                    window.types_of_work = data.types_of_work;
+                    window.order_statuses = data.order_statuses;
+                });
+        }
+        loadSession();
+    </script>
+</body>
+</html>

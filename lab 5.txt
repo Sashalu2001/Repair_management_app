@@ -1,0 +1,1467 @@
+# Клиент
+import tkinter as tk
+from tkinter import ttk, messagebox, simpledialog
+import json
+import socket
+
+# Подключение к серверу
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client_socket.connect(('127.0.0.1', 9999))
+
+
+def send_request(action, data):
+    """Отправка запроса на сервер."""
+    global client_socket
+    request = {'action': action, **data}
+    print(f"Отправляем запрос: {request}")  # Логирование запроса
+
+    try:
+        # Проверяем, открыт ли сокет
+        if not client_socket or client_socket.fileno() == -1:
+            # Если сокет закрыт, создаем новое соединение
+            print("Создание нового соединения с сервером...")
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect(('127.0.0.1', 9999))  # Убедитесь, что порт совпадает с сервером
+
+        # Отправляем запрос
+        client_socket.sendall(json.dumps(request).encode())
+
+        # Получение ответа с таймаутом
+        client_socket.settimeout(5)  # Таймаут 5 секунд
+        response = client_socket.recv(4096).decode()
+        print(f"Получен ответ: {response}")  # Логирование ответа
+
+        return json.loads(response)
+
+    except socket.timeout:
+        print("Ошибка: Таймаут при получении ответа от сервера")
+        return {'status': 'error', 'message': 'Таймаут при получении ответа от сервера'}
+
+    except ConnectionResetError:
+        print("Ошибка: Соединение было сброшено сервером")
+        return {'status': 'error', 'message': 'Соединение было сброшено сервером'}
+
+    except Exception as e:
+        print(f"Ошибка при отправке запроса: {e}")
+        return {'status': 'error', 'message': str(e)}
+
+
+def login_user():
+    """Окно входа пользователя."""
+
+    def login():
+        login_val = login_entry.get()
+        password_val = password_entry.get()
+        if not login_val or not password_val:
+            return messagebox.showerror("Ошибка", "Заполните все поля!")
+
+        response = send_request('login_user', {'login': login_val, 'password': password_val})
+        if response['status'] == 'success':
+            global current_user
+            current_user = response['user']
+            messagebox.showinfo("Успех", response['message'])
+            login_dialog.destroy()
+            update_main_buttons()
+        else:
+            messagebox.showerror("Ошибка", response['message'])
+
+    # Создаем окно входа
+    login_dialog = tk.Toplevel(root)
+    login_dialog.title("Вход")
+    login_dialog.geometry("300x200")
+
+    ttk.Label(login_dialog, text="Логин:").grid(row=0, column=0, padx=5, pady=5)
+    login_entry = ttk.Entry(login_dialog)
+    login_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    ttk.Label(login_dialog, text="Пароль:").grid(row=1, column=0, padx=5, pady=5)
+    password_entry = ttk.Entry(login_dialog, show='*')
+    password_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    ttk.Button(login_dialog, text="Войти", command=login).grid(row=2, columnspan=2, pady=10)
+
+
+def register_user():
+    """Окно регистрации пользователя."""
+
+    def register():
+        login_val = login_entry.get()
+        password_val = password_entry.get()
+        contact_val = contact_entry.get()
+        if not login_val or not password_val or not contact_val:
+            return messagebox.showerror("Ошибка", "Заполните все поля!")
+
+        response = send_request('register_user', {
+            'login': login_val,
+            'password': password_val,
+            'contact': contact_val
+        })
+        if response['status'] == 'success':
+            messagebox.showinfo("Успех", response['message'])
+            register_dialog.destroy()
+        else:
+            messagebox.showerror("Ошибка", response['message'])
+
+    # Создаем окно регистрации
+    register_dialog = tk.Toplevel(root)
+    register_dialog.title("Регистрация")
+    register_dialog.geometry("300x250")
+
+    ttk.Label(register_dialog, text="Логин:").grid(row=0, column=0, padx=5, pady=5)
+    login_entry = ttk.Entry(register_dialog)
+    login_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    ttk.Label(register_dialog, text="Пароль:").grid(row=1, column=0, padx=5, pady=5)
+    password_entry = ttk.Entry(register_dialog, show='*')
+    password_entry.grid(row=1, column=1, padx=5, pady=5)
+
+    ttk.Label(register_dialog, text="Контакты:").grid(row=2, column=0, padx=5, pady=5)
+    contact_entry = ttk.Entry(register_dialog)
+    contact_entry.grid(row=2, column=1, padx=5, pady=5)
+
+    ttk.Button(register_dialog, text="Зарегистрироваться", command=register).grid(row=3, columnspan=2, pady=10)
+
+
+current_user = None
+
+def logout():
+    """Выход из системы."""
+    global current_user
+    current_user = None
+    update_main_buttons()
+    messagebox.showinfo("Успех", "Вы вышли из системы!")
+    client_socket.close()  # Закрываем сокет при выходе
+
+
+def load_data():
+    global contractors, materials, objects, types_of_work, order_statuses
+    response = send_request('load_data', {})
+    print(f"Ответ от сервера: {response}")  # Логирование полученных данных
+    if response['status'] == 'success':
+        contractors = response['contractors']
+        materials = response['materials']
+        objects = response['objects']
+        types_of_work = response['types_of_work']
+        order_statuses = response['order_statuses']
+    else:
+        messagebox.showerror("Ошибка", response['message'])
+
+def create_order_window():
+    if not current_user:
+        return messagebox.showerror("Ошибка", "Вы не вошли в систему!")
+
+    def create_order():
+        contractor = contractor_var.get()
+        selected_materials = [item for item in materials_listbox.curselection()]
+        materials_selected = [materials_listbox.get(i) for i in selected_materials]
+        materials_dict = {m: float(materials[m]) for m in materials_selected}  # Преобразуем в float
+        obj = object_var.get()
+        work_type = work_type_var.get()
+        try:
+            customer_price = float(customer_price_entry.get())
+            area = float(area_entry.get())
+        except ValueError:
+            return messagebox.showerror("Ошибка", "Введите числа в полях цены и площади")
+
+        response = send_request('create_order', {
+            'contractor': contractor,
+            'materials': materials_dict,
+            'object': obj,
+            'work_type': work_type,
+            'customer_price': customer_price,
+            'area': area,
+            'user_id': current_user['id']
+        })
+        if response['status'] == 'success':
+            messagebox.showinfo("Успех", response['message'])
+            create_order_win.destroy()
+        else:
+            messagebox.showerror("Ошибка", response['message'])
+
+    create_order_win = tk.Toplevel(root)
+    create_order_win.title("Создание заказа")
+    create_order_win.geometry("600x600")
+
+    # Подрядчик
+    ttk.Label(create_order_win, text="Подрядчик:").grid(row=0, column=0, padx=5, pady=5)
+    contractor_var = tk.StringVar()
+    contractor_var.set(contractors[0])
+    ttk.OptionMenu(create_order_win, contractor_var, *contractors).grid(row=0, column=1, padx=5, pady=5)
+
+    # Материалы (с множественным выбором)
+    ttk.Label(create_order_win, text="Материалы:").grid(row=1, column=0, padx=5, pady=5)
+    materials_frame = ttk.Frame(create_order_win)
+    materials_frame.grid(row=1, column=1, padx=5, pady=5)
+    materials_listbox = tk.Listbox(materials_frame, selectmode=tk.MULTIPLE, height=5)
+    materials_listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+    scrollbar = ttk.Scrollbar(materials_frame, orient="vertical", command=materials_listbox.yview)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    materials_listbox.config(yscrollcommand=scrollbar.set)
+    for material in materials:
+        materials_listbox.insert(tk.END, material)
+
+    # Объект
+    ttk.Label(create_order_win, text="Объект:").grid(row=2, column=0, padx=5, pady=5)
+    object_var = tk.StringVar()
+    object_var.set(objects[0])
+    ttk.OptionMenu(create_order_win, object_var, *objects).grid(row=2, column=1, padx=5, pady=5)
+
+    # Тип работы
+    ttk.Label(create_order_win, text="Тип работы:").grid(row=3, column=0, padx=5, pady=5)
+    work_type_var = tk.StringVar()
+    work_type_var.set(list(types_of_work.keys())[0])
+    ttk.OptionMenu(create_order_win, work_type_var, *types_of_work.keys()).grid(row=3, column=1, padx=5, pady=5)
+
+    # Цена и площадь
+    ttk.Label(create_order_win, text="Цена за метр:").grid(row=4, column=0, padx=5, pady=5)
+    customer_price_entry = ttk.Entry(create_order_win)
+    customer_price_entry.grid(row=4, column=1, padx=5, pady=5)
+    ttk.Label(create_order_win, text="Площадь (м²):").grid(row=5, column=0, padx=5, pady=5)
+    area_entry = ttk.Entry(create_order_win)
+    area_entry.grid(row=5, column=1, padx=5, pady=5)
+    ttk.Button(create_order_win, text="Создать заказ", command=create_order).grid(row=6, columnspan=2, pady=10)
+
+def view_orders():
+    """Просмотр заказов."""
+    response = send_request('view_orders', {})
+    if response['status'] == 'success':
+        orders_window = tk.Toplevel(root)
+        orders_window.title("Заказы")
+        orders_window.geometry("1200x600")
+        tree = ttk.Treeview(orders_window, columns=(
+            'Логин', 'Подрядчик', 'Материалы', 'Объект', 'Тип работы',
+            'Цена/м²', 'Площадь', 'Стоимость', 'Статус'
+        ), show='headings')
+        tree.heading('Логин', text='Логин', anchor=tk.W)
+        tree.heading('Подрядчик', text='Подрядчик', anchor=tk.W)
+        tree.heading('Материалы', text='Материалы', anchor=tk.W)
+        tree.heading('Объект', text='Объект', anchor=tk.W)
+        tree.heading('Тип работы', text='Тип работы', anchor=tk.W)
+        tree.heading('Цена/м²', text='Цена/м²', anchor=tk.W)
+        tree.heading('Площадь', text='Площадь', anchor=tk.W)
+        tree.heading('Стоимость', text='Стоимость', anchor=tk.W)
+        tree.heading('Статус', text='Статус', anchor=tk.W)
+        # Настройка ширины столбцов
+        tree.column('Логин', width=100, stretch=tk.NO)
+        tree.column('Подрядчик', width=150, stretch=tk.NO)
+        tree.column('Материалы', width=200, stretch=tk.NO)
+        tree.column('Объект', width=120, stretch=tk.NO)
+        tree.column('Тип работы', width=180, stretch=tk.NO)
+        tree.column('Цена/м²', width=100, stretch=tk.NO)
+        tree.column('Площадь', width=80, stretch=tk.NO)
+        tree.column('Стоимость', width=120, stretch=tk.NO)
+        tree.column('Статус', width=150, stretch=tk.NO)
+        tree.pack(padx=10, pady=10, expand=True, fill=tk.BOTH)
+        for order in response['orders']:
+            # Преобразуем materials в список, если это строка
+            materials_list = order['materials'].split(',') if isinstance(order['materials'], str) else order[
+                'materials']
+            tree.insert('', 'end', values=(
+                order['user'],
+                order['contractor'],
+                ', '.join(materials_list),  # Теперь работает корректно
+                order['object'],
+                order['work_type'],
+                order['customer_price'],
+                order['area'],
+                order['cost'],
+                order['status']
+            ))
+    else:
+        messagebox.showerror("Ошибка", response['message'])
+
+
+def edit_order():
+    """Изменение статуса заказа."""
+
+    def update_status():
+        selected = order_listbox.curselection()
+        if not selected:
+            return
+        order_id = orders[selected[0]]['id']
+        new_status = status_var.get()
+        response = send_request('edit_order_status', {'order_id': order_id, 'new_status': new_status})
+        if response['status'] == 'success':
+            messagebox.showinfo("Успех", response['message'])
+            edit_win.destroy()
+        else:
+            messagebox.showerror("Ошибка", response['message'])
+
+    response = send_request('view_orders', {})
+    if response['status'] == 'success':
+        edit_win = tk.Toplevel(root)
+        edit_win.title("Изменение статуса заказа")
+        edit_win.geometry("800x400")
+        ttk.Label(edit_win, text="Выберите заказ:").pack(pady=5)
+        order_listbox = tk.Listbox(edit_win, width=80)
+        order_listbox.pack(padx=10, pady=5)
+        global orders
+        orders = response['orders']
+        for idx, order in enumerate(orders):
+            order_listbox.insert(tk.END,
+                                 f"Заказ {idx}: {order['user']} - {order['contractor']} - {', '.join(order['materials'].split(',') if isinstance(order['materials'], str) else order[
+                'materials']),}")
+
+        # Проверка наличия статусов
+        if not order_statuses:
+            messagebox.showerror("Ошибка", "Список статусов пуст!")
+            return
+
+        ttk.Label(edit_win, text="Новый статус:").pack(pady=5)
+        status_var = tk.StringVar()
+        status_var.set(order_statuses[0])  # Устанавливаем первый статус по умолчанию
+        ttk.OptionMenu(edit_win, status_var, *order_statuses).pack(padx=5, pady=5)
+        ttk.Button(edit_win, text="Обновить статус", command=update_status).pack(pady=10)
+    else:
+        messagebox.showerror("Ошибка", response['message'])
+
+
+def admin_panel():
+    """Админ-панель."""
+    if not current_user or current_user['role'] != 'admin':
+        return messagebox.showerror("Ошибка", "Доступ запрещен!")
+
+    admin_win = tk.Toplevel(root)
+    admin_win.title("Админ панель")
+    admin_win.geometry("300x300")
+
+
+    def update_list(name, current_list):
+        """Обновление списка через админ-панель."""
+        new_values = simpledialog.askstring(
+            f"Обновить {name}",
+            f"Введите новые значения через запятую\n(Текущие: {', '.join(current_list)})",
+            initialvalue=','.join(current_list)
+        )
+        if new_values:
+            new_values_list = [v.strip() for v in new_values.split(',')]
+            response = send_request('admin_update_list', {'name': name, 'new_values': new_values_list})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                globals()[name] = new_values_list  # Обновляем глобальные переменные
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+    def admin_edit_order():
+        """Редактирование заказа через админ-панель."""
+        # Переменная для хранения выбранного заказа
+        selected_order = None
+
+        def load_order_details(event=None):
+            """Загрузка данных заказа в форму при выборе."""
+            nonlocal selected_order  # Используем nonlocal для сохранения состояния между вызовами
+            selected = order_listbox.curselection()
+            if not selected:
+                return
+            order_index = selected[0]
+            selected_order = orders[order_index]  # Сохраняем выбранный заказ
+
+            # Подрядчик
+            contractor_var.set(selected_order['contractor'])
+
+            # Материалы
+            materials_listbox.selection_clear(0, tk.END)  # Сброс предыдущего выделения
+            for material in selected_order['materials']:
+                try:
+                    idx = list(materials.keys()).index(material)
+                    materials_listbox.selection_set(idx)
+                except ValueError:
+                    pass
+
+            # Объект
+            object_var.set(selected_order['object'])
+
+            # Тип работы
+            work_type_var.set(selected_order['work_type'])
+
+            # Цена и площадь
+            customer_price_entry.delete(0, tk.END)
+            customer_price_entry.insert(0, selected_order['customer_price'])
+            area_entry.delete(0, tk.END)
+            area_entry.insert(0, selected_order['area'])
+
+            # Статус
+            status_var.set(selected_order['status'])
+
+        def save_changes():
+            """Сохранение изменений в заказе."""
+            if not selected_order:
+                return messagebox.showerror("Ошибка", "Сначала выберите заказ!")
+
+            # Получаем новые значения из формы
+            new_order = {
+                'contractor': contractor_var.get(),
+                'materials': [materials_listbox.get(i) for i in materials_listbox.curselection()],
+                'object': object_var.get(),
+                'work_type': work_type_var.get(),
+                'customer_price': float(customer_price_entry.get()),
+                'area': float(area_entry.get()),
+                'status': status_var.get()
+            }
+
+            # Расчет стоимости
+            material_cost = sum(materials[mat] for mat in new_order['materials'])
+            cost = material_cost + types_of_work[new_order['work_type']] * new_order['customer_price'] * new_order[
+                'area']
+            new_order['cost'] = cost
+
+            # Отправка запроса на сервер
+            response = send_request('edit_order', {'order_id': selected_order['id'], **new_order})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                edit_win.destroy()
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+        # Загружаем данные о заказах
+        response = send_request('view_orders', {})
+        if response['status'] != 'success':
+            return messagebox.showerror("Ошибка", response['message'])
+        orders = response['orders']
+        if not orders:
+            return messagebox.showinfo("Информация", "Нет заказов для редактирования.")
+
+        # Создаем окно редактирования
+        edit_win = tk.Toplevel(root)
+        edit_win.title("Редактирование заказа (Админ)")
+        edit_win.geometry("800x600")
+
+        # Список заказов
+        ttk.Label(edit_win, text="Выберите заказ:").pack(pady=5)
+        order_listbox = tk.Listbox(edit_win, width=80, exportselection=False)  # Добавлено exportselection=False
+        order_listbox.pack(padx=10, pady=5)
+        for idx, order in enumerate(orders):
+            order_listbox.insert(tk.END, f"Заказ {idx}: {order['user']} - {order['contractor']} - {order['object']} - {order['work_type']}")
+
+        # Привязываем событие выбора заказа
+        order_listbox.bind("<<ListboxSelect>>", load_order_details)
+
+        # Форма редактирования
+        form_frame = ttk.Frame(edit_win)
+        form_frame.pack(padx=10, pady=10)
+
+        # Подрядчик
+        ttk.Label(form_frame, text="Подрядчик:").grid(row=0, column=0)
+        contractor_var = tk.StringVar()
+        ttk.OptionMenu(form_frame, contractor_var, *contractors).grid(row=0, column=1)
+
+        # Материалы (отдельный Listbox с множественным выбором)
+        ttk.Label(form_frame, text="Материалы:").grid(row=1, column=0)
+        materials_frame = ttk.Frame(form_frame)
+        materials_frame.grid(row=1, column=1)
+        materials_listbox = tk.Listbox(materials_frame, selectmode=tk.MULTIPLE, height=5,
+                                       exportselection=False)  # exportselection=False
+        materials_listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+        scrollbar = ttk.Scrollbar(materials_frame, orient="vertical", command=materials_listbox.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        materials_listbox.config(yscrollcommand=scrollbar.set)
+        for material in materials:
+            materials_listbox.insert(tk.END, material)
+
+        # Объект
+        ttk.Label(form_frame, text="Объект:").grid(row=2, column=0)
+        object_var = tk.StringVar()
+        ttk.OptionMenu(form_frame, object_var, *objects).grid(row=2, column=1)
+
+        # Тип работы
+        ttk.Label(form_frame, text="Тип работы:").grid(row=3, column=0)
+        work_type_var = tk.StringVar()
+        ttk.OptionMenu(form_frame, work_type_var, *types_of_work.keys()).grid(row=3, column=1)
+
+        # Цена и площадь
+        ttk.Label(form_frame, text="Цена за метр:").grid(row=4, column=0)
+        customer_price_entry = ttk.Entry(form_frame)
+        customer_price_entry.grid(row=4, column=1)
+        ttk.Label(form_frame, text="Площадь (м²):").grid(row=5, column=0)
+        area_entry = ttk.Entry(form_frame)
+        area_entry.grid(row=5, column=1)
+
+        # Статус
+        ttk.Label(form_frame, text="Статус:").grid(row=6, column=0)
+        status_var = tk.StringVar()
+        ttk.OptionMenu(form_frame, status_var, *order_statuses).grid(row=6, column=1)
+
+        # Кнопка сохранения
+        ttk.Button(edit_win, text="Сохранить изменения", command=save_changes).pack(pady=10)
+
+    def admin_manage_contractors():
+        """Управление подрядчиками."""
+
+        def refresh_contractors():
+            """Обновление списка подрядчиков."""
+            nonlocal contractors_listbox
+            response = send_request('load_data', {})
+            if response['status'] == 'success':
+                global contractors
+                contractors = response['contractors']
+                contractors_listbox.delete(0, tk.END)
+                for contractor in contractors:
+                    contractors_listbox.insert(tk.END, contractor)
+
+        def add_contractor():
+            name = simpledialog.askstring("Добавить подрядчика", "Введите имя нового подрядчика:")
+            if name:
+                response = send_request('add_contractor', {'name': name})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_contractors()  # Обновляем список
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def edit_contractor():
+            selected = contractors_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите подрядчика для изменения!")
+            old_name = contractors_listbox.get(selected[0])
+            new_name = simpledialog.askstring("Изменить подрядчика", f"Введите новое имя для '{old_name}':")
+            if new_name:
+                response = send_request('edit_contractor', {'old_name': old_name, 'new_name': new_name})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_contractors()  # Обновляем список
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def delete_contractor():
+            selected = contractors_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите подрядчика для удаления!")
+            name = contractors_listbox.get(selected[0])
+            response = send_request('delete_contractor', {'name': name})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                refresh_contractors()  # Обновляем список
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+        manage_win = tk.Toplevel(root)
+        manage_win.title("Управление подрядчиками")
+        manage_win.geometry("400x300")
+
+        ttk.Label(manage_win, text="Текущие подрядчики:").pack(pady=5)
+        contractors_listbox = tk.Listbox(manage_win, selectmode=tk.SINGLE, height=10)
+        contractors_listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        refresh_contractors()
+
+        ttk.Button(manage_win, text="Добавить подрядчика", command=add_contractor).pack(pady=5)
+        ttk.Button(manage_win, text="Изменить подрядчика", command=edit_contractor).pack(pady=5)
+        ttk.Button(manage_win, text="Удалить подрядчика", command=delete_contractor).pack(pady=5)
+
+    def admin_manage_materials():
+        """Управление материалами."""
+
+        def refresh_materials():
+            nonlocal materials_listbox
+            response = send_request('load_data', {})
+            if response['status'] == 'success':
+                global materials
+                materials = response['materials']
+                materials_listbox.delete(0, tk.END)
+                for material in materials:
+                    materials_listbox.insert(tk.END, f"{material}: {materials[material]}")
+
+        def add_material():
+            name = simpledialog.askstring("Добавить материал", "Введите название материала:")
+            price = simpledialog.askfloat("Добавить материал", "Введите цену:")
+            if name and price:
+                response = send_request('add_material', {'name': name, 'price': price})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_materials()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def edit_material():
+            selected = materials_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите материал для изменения!")
+            old_material = materials_listbox.get(selected[0]).split(':')[0].strip()
+            new_name = simpledialog.askstring("Изменить материал", f"Введите новое название для '{old_material}':")
+            new_price = simpledialog.askfloat("Изменить материал",
+                                              f"Введите новую цену для '{new_name or old_material}':")
+            if new_name and new_price:
+                response = send_request('edit_material', {
+                    'old_name': old_material,
+                    'new_name': new_name,
+                    'new_price': new_price
+                })
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_materials()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def delete_material():
+            selected = materials_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите материал для удаления!")
+            material = materials_listbox.get(selected[0]).split(':')[0].strip()
+            response = send_request('delete_material', {'name': material})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                refresh_materials()
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+        manage_win = tk.Toplevel(root)
+        manage_win.title("Управление материалами")
+        manage_win.geometry("400x300")
+        ttk.Label(manage_win, text="Текущие материалы:").pack(pady=5)
+        materials_listbox = tk.Listbox(manage_win, selectmode=tk.SINGLE, height=10)
+        materials_listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        refresh_materials()
+        ttk.Button(manage_win, text="Добавить материал", command=add_material).pack(pady=5)
+        ttk.Button(manage_win, text="Изменить материал", command=edit_material).pack(pady=5)
+        ttk.Button(manage_win, text="Удалить материал", command=delete_material).pack(pady=5)
+
+    def admin_manage_objects():
+        """Управление объектами."""
+
+        def refresh_objects():
+            nonlocal objects_listbox
+            response = send_request('load_data', {})
+            if response['status'] == 'success':
+                global objects
+                objects = response['objects']
+                objects_listbox.delete(0, tk.END)
+                for obj in objects:
+                    objects_listbox.insert(tk.END, obj)
+
+        def add_object():
+            name = simpledialog.askstring("Добавить объект", "Введите название объекта:")
+            if name:
+                response = send_request('add_object', {'name': name})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_objects()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def edit_object():
+            selected = objects_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите объект для изменения!")
+            old_name = objects_listbox.get(selected[0])
+            new_name = simpledialog.askstring("Изменить объект", f"Введите новое название для '{old_name}':")
+            if new_name:
+                response = send_request('edit_object', {'old_name': old_name, 'new_name': new_name})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_objects()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def delete_object():
+            selected = objects_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите объект для удаления!")
+            name = objects_listbox.get(selected[0])
+            response = send_request('delete_object', {'name': name})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                refresh_objects()
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+        manage_win = tk.Toplevel(root)
+        manage_win.title("Управление объектами")
+        manage_win.geometry("400x300")
+        ttk.Label(manage_win, text="Текущие объекты:").pack(pady=5)
+        objects_listbox = tk.Listbox(manage_win, selectmode=tk.SINGLE, height=10)
+        objects_listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        refresh_objects()
+        ttk.Button(manage_win, text="Добавить объект", command=add_object).pack(pady=5)
+        ttk.Button(manage_win, text="Изменить объект", command=edit_object).pack(pady=5)
+        ttk.Button(manage_win, text="Удалить объект", command=delete_object).pack(pady=5)
+
+    def admin_manage_work_types():
+        """Управление типами работ."""
+
+        def refresh_work_types():
+            nonlocal work_types_listbox
+            response = send_request('load_data', {})
+            if response['status'] == 'success':
+                global types_of_work
+                types_of_work = response['types_of_work']
+                work_types_listbox.delete(0, tk.END)
+                for work_type, multiplier in types_of_work.items():
+                    work_types_listbox.insert(tk.END, f"{work_type}: {multiplier}")
+
+        def add_work_type():
+            name = simpledialog.askstring("Добавить тип работы", "Введите название типа работы:")
+            multiplier = simpledialog.askfloat("Добавить тип работы", "Введите коэффициент:")
+            if name and multiplier:
+                response = send_request('add_work_type', {'name': name, 'multiplier': multiplier})
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_work_types()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def edit_work_type():
+            selected = work_types_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите тип работы для изменения!")
+            old_work_type = work_types_listbox.get(selected[0]).split(':')[0].strip()
+            new_name = simpledialog.askstring("Изменить тип работы", f"Введите новое название для '{old_work_type}':")
+            new_multiplier = simpledialog.askfloat("Изменить тип работы",
+                                                   f"Введите новый коэффициент для '{new_name or old_work_type}':")
+            if new_name and new_multiplier:
+                response = send_request('edit_work_type', {
+                    'old_name': old_work_type,
+                    'new_name': new_name,
+                    'new_multiplier': new_multiplier
+                })
+                if response['status'] == 'success':
+                    messagebox.showinfo("Успех", response['message'])
+                    refresh_work_types()
+                else:
+                    messagebox.showerror("Ошибка", response['message'])
+
+        def delete_work_type():
+            selected = work_types_listbox.curselection()
+            if not selected:
+                return messagebox.showerror("Ошибка", "Выберите тип работы для удаления!")
+            work_type = work_types_listbox.get(selected[0]).split(':')[0].strip()
+            response = send_request('delete_work_type', {'name': work_type})
+            if response['status'] == 'success':
+                messagebox.showinfo("Успех", response['message'])
+                refresh_work_types()
+            else:
+                messagebox.showerror("Ошибка", response['message'])
+
+        manage_win = tk.Toplevel(root)
+        manage_win.title("Управление типами работ")
+        manage_win.geometry("400x300")
+        ttk.Label(manage_win, text="Текущие типы работ:").pack(pady=5)
+        work_types_listbox = tk.Listbox(manage_win, selectmode=tk.SINGLE, height=10)
+        work_types_listbox.pack(padx=10, pady=5, fill=tk.BOTH, expand=True)
+        refresh_work_types()
+        ttk.Button(manage_win, text="Добавить тип работы", command=add_work_type).pack(pady=5)
+        ttk.Button(manage_win, text="Изменить тип работы", command=edit_work_type).pack(pady=5)
+        ttk.Button(manage_win, text="Удалить тип работы", command=delete_work_type).pack(pady=5)
+
+    ttk.Button(admin_win, text="Управление подрядчиками", command=admin_manage_contractors).pack(pady=5)
+    ttk.Button(admin_win, text="Управление материалами", command=admin_manage_materials).pack(pady=5)
+    ttk.Button(admin_win, text="Управление объектами", command=admin_manage_objects).pack(pady=5)
+    ttk.Button(admin_win, text="Управление типами работ", command=admin_manage_work_types).pack(pady=5)
+    ttk.Button(admin_win, text="Изменить заказы", command=admin_edit_order).pack(pady=10)
+
+
+def update_main_buttons():
+    """Обновление кнопок на главном экране."""
+    if current_user:
+        login_button.pack_forget()
+        register_button.pack_forget()
+        logout_button.pack(side=tk.TOP, pady=5)
+        logout_button.config(state=tk.NORMAL)
+    else:
+        login_button.pack(side=tk.TOP, pady=5)
+        register_button.pack(side=tk.TOP, pady=5)
+        logout_button.pack_forget()
+        logout_button.config(state=tk.DISABLED)
+
+
+def main_app():
+    """Основное приложение."""
+    global root, login_button, register_button, logout_button
+    root = tk.Tk()
+    root.title("Расчет стоимости ремонтных работ")
+    root.geometry("400x400")
+
+    login_button = ttk.Button(root, text="Вход", command=login_user)
+    register_button = ttk.Button(root, text="Регистрация", command=register_user)
+    logout_button = ttk.Button(root, text="Выйти", command=logout, state=tk.DISABLED)
+
+    login_button.pack(side=tk.TOP, pady=5)
+    register_button.pack(side=tk.TOP, pady=5)
+    logout_button.pack(side=tk.TOP, pady=5)
+
+    ttk.Button(root, text="Создать заказ", command=create_order_window).pack(pady=5)
+    ttk.Button(root, text="Просмотреть заказы", command=view_orders).pack(pady=5)
+    ttk.Button(root, text="Изменить статус заказа", command=edit_order).pack(pady=5)
+    ttk.Button(root, text="Админ панель", command=admin_panel).pack(pady=10)
+
+    load_data()
+    update_main_buttons()
+    root.mainloop()
+
+if __name__ == "__main__":
+    main_app()
+
+
+# Сервер
+import socket
+import threading
+import json
+import mysql.connector
+from decimal import Decimal
+
+# Подключение к базе данных
+db = mysql.connector.connect(
+    host="localhost",
+    user="Sashalu",
+    password="sashalu",
+    database="repair_management"
+)
+
+cursor = db.cursor(dictionary=True)
+
+# Функция для преобразования Decimal в float
+def convert_decimal_to_float(obj):
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, list):
+        return [convert_decimal_to_float(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {key: convert_decimal_to_float(value) for key, value in obj.items()}
+    else:
+        return obj
+
+def handle_client(client_socket):
+    while True:
+        try:
+            request = client_socket.recv(1024).decode()
+            print(f"Получен запрос: {request}")  # Логирование запроса
+            if not request:
+                break
+
+            request_data = json.loads(request)
+            action = request_data['action']
+
+            if action == 'load_data':
+                cursor.execute("SELECT name FROM contractors")
+                contractors = [row['name'] for row in cursor.fetchall()]
+
+                cursor.execute("SELECT name, price FROM materials")
+                materials = {row['name']: row['price'] for row in cursor.fetchall()}
+
+                cursor.execute("SELECT name FROM objects")
+                objects = [row['name'] for row in cursor.fetchall()]
+
+                cursor.execute("SELECT name, multiplier FROM types_of_work")
+                types_of_work = {row['name']: row['multiplier'] for row in cursor.fetchall()}
+
+                # Загрузка статусов заказов из таблицы order_statuses
+                cursor.execute("SELECT status FROM order_statuses")
+                order_statuses = [row['status'] for row in cursor.fetchall()]
+
+                response = {
+                    'status': 'success',
+                    'contractors': contractors,
+                    'materials': materials,
+                    'objects': objects,
+                    'types_of_work': types_of_work,
+                    'order_statuses': order_statuses
+                }
+                response = convert_decimal_to_float(response)
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'login_user':
+                try:
+                    login = request_data['login']
+                    password = request_data['password']
+                    cursor.execute("SELECT * FROM users WHERE login = %s AND password = %s", (login, password))
+                    user = cursor.fetchone()
+                    if user:
+                        response = {'status': 'success', 'message': 'Вход успешен!', 'user': user}
+                    else:
+                        response = {'status': 'error', 'message': 'Неверные учетные данные!'}
+                    response = convert_decimal_to_float(response)
+                    print(f"Отправлен ответ: {response}")
+                    client_socket.sendall(json.dumps(response).encode())
+                except Exception as e:
+                    print(f"Ошибка при обработке запроса login_user: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+                    client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'register_user':
+                try:
+                    login = request_data['login']
+                    password = request_data['password']
+                    contact = request_data['contact']
+
+                    # Проверяем, что логин уникален
+                    cursor.execute("SELECT * FROM users WHERE login = %s", (login,))
+                    if cursor.fetchone():
+                        response = {'status': 'error', 'message': 'Логин уже занят!'}
+                    else:
+                        # Добавляем нового пользователя в базу данных
+                        cursor.execute("""
+                            INSERT INTO users (login, password, contact, role)
+                            VALUES (%s, %s, %s, %s)
+                        """, (login, password, contact, 'user'))
+                        db.commit()
+                        response = {'status': 'success', 'message': 'Регистрация прошла успешно!'}
+                except Exception as e:
+                    print(f"Ошибка при регистрации пользователя: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'admin_panel':
+                login = request_data['login']
+                cursor.execute("SELECT role FROM users WHERE login = %s", (login,))
+                user = cursor.fetchone()
+                if user and user['role'] == 'admin':
+                    response = {'status': 'success', 'message': 'Доступ разрешен'}
+                else:
+                    response = {'status': 'error', 'message': 'Доступ запрещен'}
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'add_contractor':
+                try:
+                    name = request_data['name']
+                    cursor.execute("INSERT INTO contractors (name) VALUES (%s)", (name,))
+                    db.commit()
+                    response = {'status': 'success', 'message': f'Подрядчик "{name}" успешно добавлен!'}
+                except Exception as e:
+                    print(f"Ошибка при добавлении подрядчика: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'edit_contractor':
+                try:
+                    old_name = request_data['old_name']
+                    new_name = request_data['new_name']
+                    cursor.execute("UPDATE contractors SET name = %s WHERE name = %s", (new_name, old_name))
+                    db.commit()
+                    response = {'status': 'success',
+                                'message': f'Подрядчик "{old_name}" успешно изменен на "{new_name}"!'}
+                except Exception as e:
+                    print(f"Ошибка при редактировании подрядчика: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'delete_contractor':
+                try:
+                    name = request_data['name']
+                    # Проверяем, есть ли заказы, связанные с этим подрядчиком
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM orders WHERE contractor_id = (SELECT id FROM contractors WHERE name = %s)",
+                        (name,))
+                    count = cursor.fetchone()['count']
+                    if count > 0:
+                        response = {'status': 'error',
+                                    'message': f'Невозможно удалить подрядчика "{name}", так как он связан с заказами.'}
+                    else:
+                        cursor.execute("DELETE FROM contractors WHERE name = %s", (name,))
+                        db.commit()
+                        response = {'status': 'success', 'message': f'Подрядчик "{name}" успешно удален!'}
+                except Exception as e:
+                    print(f"Ошибка при удалении подрядчика: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'add_material':
+
+                try:
+
+                    name = request_data['name']
+
+                    price = request_data['price']
+
+                    cursor.execute("INSERT INTO materials (name, price) VALUES (%s, %s)", (name, price))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Материал "{name}" добавлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'edit_material':
+
+                try:
+
+                    old_name = request_data['old_name']
+
+                    new_name = request_data['new_name']
+
+                    new_price = request_data['new_price']
+
+                    cursor.execute("UPDATE materials SET name = %s, price = %s WHERE name = %s",
+                                   (new_name, new_price, old_name))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Материал "{old_name}" обновлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'delete_material':
+
+                try:
+
+                    name = request_data['name']
+
+                    cursor.execute("SELECT COUNT(*) AS count FROM orders WHERE FIND_IN_SET(%s, materials)", (name,))
+
+                    count = cursor.fetchone()['count']
+
+                    if count > 0:
+
+                        response = {'status': 'error', 'message': f'Материал "{name}" используется в заказах!'}
+
+                    else:
+
+                        cursor.execute("DELETE FROM materials WHERE name = %s", (name,))
+
+                        db.commit()
+
+                        response = {'status': 'success', 'message': f'Материал "{name}" удален!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            # Аналогичные обработчики для объектов и типов работ
+
+            elif action == 'add_object':
+
+                try:
+
+                    name = request_data['name']
+
+                    cursor.execute("INSERT INTO objects (name) VALUES (%s)", (name,))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Объект "{name}" добавлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'edit_object':
+
+                try:
+
+                    old_name = request_data['old_name']
+
+                    new_name = request_data['new_name']
+
+                    cursor.execute("UPDATE objects SET name = %s WHERE name = %s", (new_name, old_name))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Объект "{old_name}" обновлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'delete_object':
+
+                try:
+
+                    name = request_data['name']
+
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM orders WHERE object_id = (SELECT id FROM objects WHERE name = %s)",
+                        (name,))
+
+                    count = cursor.fetchone()['count']
+
+                    if count > 0:
+
+                        response = {'status': 'error', 'message': f'Объект "{name}" используется в заказах!'}
+
+                    else:
+
+                        cursor.execute("DELETE FROM objects WHERE name = %s", (name,))
+
+                        db.commit()
+
+                        response = {'status': 'success', 'message': f'Объект "{name}" удален!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'add_work_type':
+
+                try:
+
+                    name = request_data['name']
+
+                    multiplier = request_data['multiplier']
+
+                    cursor.execute("INSERT INTO types_of_work (name, multiplier) VALUES (%s, %s)", (name, multiplier))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Тип работы "{name}" добавлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'edit_work_type':
+
+                try:
+
+                    old_name = request_data['old_name']
+
+                    new_name = request_data['new_name']
+
+                    new_multiplier = request_data['new_multiplier']
+
+                    cursor.execute("UPDATE types_of_work SET name = %s, multiplier = %s WHERE name = %s",
+                                   (new_name, new_multiplier, old_name))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': f'Тип работы "{old_name}" обновлен!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'delete_work_type':
+
+                try:
+
+                    name = request_data['name']
+
+                    cursor.execute(
+                        "SELECT COUNT(*) AS count FROM orders WHERE type_of_work_id = (SELECT id FROM types_of_work WHERE name = %s)",
+                        (name,))
+
+                    count = cursor.fetchone()['count']
+
+                    if count > 0:
+
+                        response = {'status': 'error', 'message': f'Тип работы "{name}" используется в заказах!'}
+
+                    else:
+
+                        cursor.execute("DELETE FROM types_of_work WHERE name = %s", (name,))
+
+                        db.commit()
+
+                        response = {'status': 'success', 'message': f'Тип работы "{name}" удален!'}
+
+                except Exception as e:
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'edit_order':
+                try:
+                    order_id = request_data['order_id']
+                    contractor = request_data['contractor']
+                    materials = request_data['materials']
+                    obj = request_data['object']
+                    work_type = request_data['work_type']
+                    customer_price = request_data['customer_price']
+                    area = request_data['area']
+                    status = request_data['status']
+                    cost = request_data['cost']
+
+                    # Получаем ID подрядчика, объекта и типа работы
+                    cursor.execute("SELECT id FROM contractors WHERE name = %s", (contractor,))
+                    contractor_id = cursor.fetchone()['id']
+
+                    cursor.execute("SELECT id FROM objects WHERE name = %s", (obj,))
+                    object_id = cursor.fetchone()['id']
+
+                    cursor.execute("SELECT id FROM types_of_work WHERE name = %s", (work_type,))
+                    type_of_work_id = cursor.fetchone()['id']
+
+                    # Обновляем заказ в базе данных
+                    cursor.execute("""
+                        UPDATE orders 
+                        SET contractor_id = %s, object_id = %s, type_of_work_id = %s, materials = %s, 
+                            customer_price = %s, area = %s, cost = %s, status = %s 
+                        WHERE id = %s
+                    """, (
+                        contractor_id, object_id, type_of_work_id, ','.join(materials),
+                        customer_price, area, cost, status, order_id
+                    ))
+                    db.commit()
+
+                    response = {'status': 'success', 'message': 'Заказ успешно обновлен!'}
+                except Exception as e:
+                    print(f"Ошибка при редактировании заказа: {e}")
+                    response = {'status': 'error', 'message': str(e)}
+
+                client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'create_order':
+
+                try:
+
+                    contractor = request_data['contractor']
+
+                    materials = request_data['materials']
+
+                    obj = request_data['object']
+
+                    work_type = request_data['work_type']
+
+                    customer_price = request_data['customer_price']
+
+                    area = request_data['area']
+
+                    user_id = request_data['user_id']
+
+                    # Получаем ID подрядчика, объекта и типа работы
+
+                    cursor.execute("SELECT id FROM contractors WHERE name = %s", (contractor,))
+
+                    contractor_id = cursor.fetchone()['id']
+
+                    cursor.execute("SELECT id FROM objects WHERE name = %s", (obj,))
+
+                    object_id = cursor.fetchone()['id']
+
+                    cursor.execute("SELECT id, multiplier FROM types_of_work WHERE name = %s", (work_type,))
+
+                    type_of_work = cursor.fetchone()
+
+                    type_of_work_id = type_of_work['id']
+
+                    multiplier = convert_decimal_to_float(type_of_work['multiplier'])  # Преобразуем multiplier в float
+
+                    # Преобразуем материалы в float
+
+                    materials = {material: float(price) for material, price in materials.items()}
+
+                    # Расчет стоимости материалов
+
+                    material_cost = sum(materials[material] for material in materials)
+
+                    # Расчет общей стоимости
+
+                    cost = material_cost + multiplier * customer_price * area
+
+                    # Сохранение заказа в базу данных
+
+                    cursor.execute("""
+
+                        INSERT INTO orders (contractor_id, object_id, type_of_work_id, user_id, materials, customer_price, area, cost, status)
+
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+
+                    """, (
+
+                        contractor_id, object_id, type_of_work_id, user_id, ','.join(materials), customer_price, area,
+                        cost,
+
+                        'В обработке'))
+
+                    db.commit()
+
+                    response = {'status': 'success', 'message': 'Заказ создан!'}
+
+                    print(f"Отправлен ответ: {response}")  # Логирование ответа
+
+                    client_socket.sendall(json.dumps(response).encode())
+
+                except Exception as e:
+
+                    print(f"Ошибка при обработке запроса create_order: {e}")
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                    client_socket.sendall(json.dumps(response).encode())
+
+
+            elif action == 'view_orders':
+
+                try:
+
+                    cursor.execute("""
+
+                        SELECT o.id, u.login AS user, c.name AS contractor, o.materials, ob.name AS object, 
+
+                               tw.name AS work_type, o.customer_price, o.area, o.cost, o.status 
+
+                        FROM orders o 
+
+                        JOIN users u ON o.user_id = u.id 
+
+                        JOIN contractors c ON o.contractor_id = c.id 
+
+                        JOIN objects ob ON o.object_id = ob.id 
+
+                        JOIN types_of_work tw ON o.type_of_work_id = tw.id
+
+                    """)
+
+                    orders = cursor.fetchall()
+
+                    # Преобразуем Decimal в float перед отправкой
+
+                    orders = convert_decimal_to_float(orders)
+
+                    response = {'status': 'success', 'orders': orders}
+
+                    client_socket.sendall(json.dumps(response).encode())
+
+                except Exception as e:
+
+                    print(f"Ошибка при обработке запроса view_orders: {e}")
+
+                    response = {'status': 'error', 'message': str(e)}
+
+                    client_socket.sendall(json.dumps(response).encode())
+
+            elif action == 'edit_order_status':
+                order_id = request_data['order_id']
+                new_status = request_data['new_status']
+                cursor.execute("UPDATE orders SET status = %s WHERE id = %s", (new_status, order_id))
+                db.commit()
+                response = {'status': 'success', 'message': 'Статус заказа обновлен!'}
+                client_socket.sendall(json.dumps(response).encode())
+
+        except Exception as e:
+            print(f"Ошибка: {e}")
+            response = {'status': 'error', 'message': str(e)}
+            client_socket.sendall(json.dumps(response).encode())
+            break
+
+    client_socket.close()
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('127.0.0.1', 9999))
+    server.listen(5)
+    print("Сервер запущен, ожидание подключений...")
+
+    while True:
+        client_socket, addr = server.accept()
+        print(f"Подключение от {addr}")
+        client_handler = threading.Thread(target=handle_client, args=(client_socket,))
+        client_handler.daemon = True  # Поток будет завершен при завершении основного процесса
+        client_handler.start()
+
+
+if __name__ == "__main__":
+    start_server()
+
+# База данных
+CREATE DATABASE IF NOT EXISTS repair_management;
+USE repair_management;
+
+-- Создание таблиц
+CREATE TABLE IF NOT EXISTS users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    login VARCHAR(50) NOT NULL UNIQUE,
+    password VARCHAR(50) NOT NULL,
+    contact VARCHAR(100),
+    role ENUM('user', 'admin') NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS contractors (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS materials (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    price DECIMAL(10, 2) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS objects (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS types_of_work (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    multiplier DECIMAL(10, 2) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS order_statuses (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    status VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    contractor_id INT,
+    object_id INT,
+    type_of_work_id INT,
+    user_id INT,
+    materials TEXT,
+    customer_price DECIMAL(10, 2) NOT NULL,
+    area DECIMAL(10, 2) NOT NULL,
+    cost DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(50) NOT NULL,
+    FOREIGN KEY (contractor_id) REFERENCES contractors(id),
+    FOREIGN KEY (object_id) REFERENCES objects(id),
+    FOREIGN KEY (type_of_work_id) REFERENCES types_of_work(id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Вставка первоначальных данных
+INSERT INTO users (login, password, contact, role) VALUES
+('user', 'user', 'user@example.com', 'user'),
+('admin', 'admin', 'admin@example.com', 'admin');
+
+INSERT INTO contractors (name) VALUES
+('Строительный Дом'),
+('Мастер-Ремонт'),
+('Уютный Дом'),
+('РемонтСервис'),
+('ДомСтрой');
+
+INSERT INTO materials (name, price) VALUES
+('Гипсокартон', 150),
+('Декоративная штукатурка', 300),
+('Полимерная плитка', 250),
+('Ламинат Lamington', 200),
+('Экошпон', 400);
+
+INSERT INTO objects (name) VALUES
+('Квартира'),
+('Офис'),
+('Торговый центр'),
+('Дачный дом'),
+('Таунхаус');
+
+INSERT INTO types_of_work (name, multiplier) VALUES
+('Штукатурка стен', 1.2),
+('Укладка плитки', 2.0),
+('Монтаж натяжных потолков', 2.5),
+('Монтаж электропроводки', 3.0),
+('Установка сантехники', 1.8);
+
+-- Добавление начальных статусов
+INSERT INTO order_statuses (status) VALUES
+('В обработке'),
+('Выполнен'),
+('Отменен'),
+('Ожидает подтверждения');

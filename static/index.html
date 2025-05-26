@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Repair Management</title>
+    <style>
+        .hidden { display: none; }
+.container { max-width: 800px; margin: 0 auto; }
+.auth-form { margin: 20px 0; }
+.form-group { margin: 15px 0; }
+
+/* Стили для таблицы заказов */
+.status-form {
+    display: inline-block;
+    margin-left: 10px;
+}
+.status-select {
+    padding: 5px;
+    margin-right: 5px;
+}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Repair Management</h1>
+
+        <!-- Форма входа -->
+        <div id="auth" class="auth-form">
+            <h3>Вход</h3>
+            <div class="form-group">
+                <input type="text" id="login" placeholder="Логин">
+            </div>
+            <div class="form-group">
+                <input type="password" id="password" placeholder="Пароль">
+            </div>
+            <button onclick="login()">Войти</button>
+            <button onclick="showRegister()">Регистрация</button>
+        </div>
+
+        <!-- Форма регистрации -->
+        <div id="register" class="auth-form hidden">
+            <h3>Регистрация</h3>
+            <div class="form-group">
+                <input type="text" id="regLogin" placeholder="Логин">
+            </div>
+            <div class="form-group">
+                <input type="password" id="regPassword" placeholder="Пароль">
+            </div>
+            <div class="form-group">
+                <input type="text" id="contact" placeholder="Контакты">
+            </div>
+            <button onclick="register()">Зарегистрироваться</button>
+            <button onclick="showLogin()">Назад</button>
+        </div>
+
+        <!-- Основной интерфейс -->
+<div id="main" class="hidden">
+    <button onclick="logout()">Выйти</button>
+    <button onclick="createOrder()">Создать заказ</button>
+    <button onclick="viewOrders()">Просмотреть заказы</button>
+    <button onclick="editOrder()" id="editOrderBtn" class="hidden">Изменить заказ</button>
+    <button onclick="adminPanel()" id="adminBtn" class="hidden">Админ панель</button>
+</div>
+    </div>
+
+<script>
+    let currentUser = null;
+
+    // Показать форму регистрации
+    function showRegister() {
+        document.getElementById('auth').classList.add('hidden');
+        document.getElementById('register').classList.remove('hidden');
+    }
+
+    // Показать форму входа
+    function showLogin() {
+        document.getElementById('register').classList.add('hidden');
+        document.getElementById('auth').classList.remove('hidden');
+    }
+
+    // Авторизация
+    async function login() {
+    const login = document.getElementById('login').value;
+    const password = document.getElementById('password').value;
+    const response = await fetch('http://localhost:5000/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ login, password })
+    });
+    const data = await response.json();
+    if (data.status === 'success') {
+        currentUser = data.user;
+        document.getElementById('auth').classList.add('hidden');
+        document.getElementById('main').classList.remove('hidden');
+
+        // Убираем динамическое добавление кнопки
+        document.getElementById('editOrderBtn').classList.remove('hidden');
+
+        if (currentUser.role === 'admin') {
+            document.getElementById('adminBtn').classList.remove('hidden');
+        }
+    } else {
+        alert(data.message);
+    }
+}
+
+    // Регистрация
+    async function register() {
+        const login = document.getElementById('regLogin').value;
+        const password = document.getElementById('regPassword').value;
+        const contact = document.getElementById('contact').value;
+
+        const response = await fetch('http://localhost:5000/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({login, password, contact})
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            showLogin();
+        } else {
+            alert(data.message);
+        }
+    }
+
+    // Выход
+    function logout() {
+    currentUser = null;
+    localStorage.removeItem('currentUser'); // Очистка localStorage
+    document.getElementById('main').classList.add('hidden');
+    document.getElementById('auth').classList.remove('hidden');
+}
+
+    async function viewOrders() {
+    try {
+        const response = await fetch('/view_orders');
+        const data = await response.json();
+
+        const ordersWindow = window.open('', '_blank');
+        ordersWindow.document.write(`
+            <html>
+                <head>
+                    <title>Заказы</title>
+                    <style>
+                        .status-form { display: inline-block; margin-left: 10px; }
+                        .status-select { padding: 5px; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Список заказов</h2>
+                    <table border="1">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Подрядчик</th>
+                                <th>Объект</th>
+                                <th>Тип работы</th>
+                                <th>Стоимость</th>
+                                <th>Статус</th>
+                                <th>Изменить статус</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTable"></tbody>
+                    </table>
+
+                    <script>
+                        // Копируем функцию изменения статуса в новое окно
+                        async function changeOrderStatus(event, orderId) {
+                            event.preventDefault();
+                            const form = event.target;
+                            const statusSelect = form.querySelector('select[name="status"]');
+                            const newStatus = statusSelect.value;
+
+                            try {
+                                const response = await fetch('/update_status/' + orderId, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        status: newStatus,
+                                        user_id: ${currentUser.id}
+                                    })
+                                });
+
+                                const result = await response.json();
+                                if (result.status === 'success') {
+                                    alert('Статус успешно изменён!');
+                                    window.location.reload(); // Обновляем страницу
+                                } else {
+                                    alert('Ошибка: ' + result.message);
+                                }
+                            } catch (error) {
+                                console.error('Ошибка:', error);
+                                alert('Не удалось изменить статус.');
+                            }
+                        }
+                    <\/script>
+                </body>
+            </html>
+        `);
+
+        // Загружаем доступные статусы
+        const statusResponse = await fetch('/load_statuses');
+        const statusData = await statusResponse.json();
+        const statuses = statusData.statuses || [];
+
+        const tbody = ordersWindow.document.getElementById('ordersTable');
+
+        data.forEach(order => {
+            const statusForm = `
+                <form class="status-form" onsubmit="changeOrderStatus(event, ${order.id})">
+                    <select name="status" class="status-select">
+                        ${statuses.map(s => `<option value="${s}" ${s === order.status ? 'selected' : ''}>${s}</option>`).join('')}
+                    </select>
+                    <button type="submit">✔</button>
+                </form>
+            `;
+
+            const row = `
+                <tr>
+                    <td>${order.id}</td>
+                    <td>${order.contractor}</td>
+                    <td>${order.object}</td>
+                    <td>${order.work_type}</td>
+                    <td>${order.cost} руб.</td>
+                    <td>${order.status}</td>
+                    <td>${statusForm}</td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    } catch (error) {
+        alert(`Ошибка загрузки заказов: ${error.message}`);
+    }
+}
+
+async function changeOrderStatus(event, orderId) {
+    event.preventDefault();
+    const form = event.target;
+    const statusSelect = form.querySelector('.status-select');
+    const newStatus = statusSelect.value;
+
+    try {
+        const response = await fetch(`/update_status/${orderId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                status: newStatus,
+                user_id: currentUser.id
+            })
+        });
+
+        const result = await response.json();
+        if (result.status === 'success') {
+            const statusCell = form.closest('tr').querySelector('td:nth-child(7)');
+            statusCell.textContent = newStatus;
+            alert('Статус успешно изменён!');
+        } else {
+            alert(`Ошибка: ${result.message}`);
+        }
+    } catch (error) {
+        alert(`Ошибка изменения статуса: ${error.message}`);
+    }
+}
+
+    // Функция создания заказа
+    async function createOrder() {
+        try {
+            // Загружаем справочные данные
+            const dataResponse = await fetch('/load_data');
+            const data = await dataResponse.json();
+
+            // Создаем форму в новом окне
+            const formWindow = window.open('', '_blank');
+            formWindow.document.write(`
+            <html>
+                <head><title>Создать заказ</title></head>
+                <body>
+                    <h2>Создание заказа</h2>
+                    <form id="orderForm">
+                        <label>Подрядчик:
+                            <select name="contractor" required>
+                                ${data.contractors.map(c => `<option>${c}</option>`).join('')}
+                            </select>
+                        </label><br>
+
+                        <label>Материалы (выберите несколько):
+                            <select name="materials" multiple size="5" required>
+                                ${Object.entries(data.materials).map(([name, price]) =>
+                `<option value="${name}">${name} (${price} руб.)</option>`
+            ).join('')}
+                            </select>
+                        </label><br>
+
+                        <label>Объект:
+                            <select name="object" required>
+                                ${data.objects.map(o => `<option>${o}</option>`).join('')}
+                            </select>
+                        </label><br>
+
+                        <label>Тип работы:
+                            <select name="work_type" required>
+                                ${Object.entries(data.types_of_work).map(([name, multiplier]) =>
+                `<option value="${name}">${name} (x${multiplier})</option>`
+            ).join('')}
+                            </select>
+                        </label><br>
+
+                        <label>Цена за м²:
+                            <input type="number" name="customer_price" step="0.01" required>
+                        </label><br>
+
+                        <label>Площадь:
+                            <input type="number" name="area" step="0.01" required>
+                        </label><br>
+
+                        <button type="submit">Создать</button>
+                    </form>
+                </body>
+            </html>
+        `);
+
+            // Обработчик отправки формы
+            formWindow.document.getElementById('orderForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                // Собираем данные формы
+                const formData = new FormData(e.target);
+                const materials = Array.from(formData.getAll('materials'))
+                    .reduce((acc, name) => ({...acc, [name]: data.materials[name]}), {});
+
+                const orderData = {
+                    contractor: formData.get('contractor'),
+                    materials: materials,
+                    object: formData.get('object'),
+                    work_type: formData.get('work_type'),
+                    customer_price: parseFloat(formData.get('customer_price')),
+                    area: parseFloat(formData.get('area')),
+                    user_id: currentUser.id // Убедитесь, что currentUser определен
+                };
+
+                // Валидация данных
+                if (!orderData.contractor ||
+                    Object.keys(orderData.materials).length === 0 ||
+                    !orderData.object ||
+                    !orderData.work_type ||
+                    isNaN(orderData.customer_price) ||
+                    isNaN(orderData.area)) {
+
+                    return alert('Все поля обязательны!');
+                }
+
+                // Отправляем запрос
+                const response = await fetch('/create_order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(orderData)
+                });
+
+                const result = await response.json();
+
+                // Выводим сообщение об успешном создании заказа
+                if (result.status === 'success') {
+                    alert(result.message);
+                    formWindow.close();
+                } else {
+                    alert(`Ошибка: ${result.message}`);
+                }
+            });
+
+        } catch (error) {
+            alert(`Ошибка: ${error.message}`);
+        }
+    }
+
+    // Редактирование заказа
+    async function editOrder() {
+        try {
+            const response = await fetch(`/user_orders?user_id=${currentUser.id}`);
+            const data = await response.json();
+            if (data.status !== 'success') {
+                alert(data.message);
+                return;
+            }
+            const ordersWindow = window.open('', '_blank');
+            ordersWindow.document.write(`
+            <html>
+                <head><title>Выберите заказ</title></head>
+                <body>
+                    <h2>Ваши заказы</h2>
+                    <ul>
+        `);
+            data.orders.forEach(order => {
+                ordersWindow.document.write(`
+                <li>
+                    <button onclick="window.opener.loadOrderForEdit(${order.id})">Редактировать заказ #${order.id}</button>
+                </li>
+            `);
+            });
+            ordersWindow.document.write(`
+                    </ul>
+                </body>
+            </html>
+        `);
+        } catch (error) {
+            alert(`Ошибка: ${error.message}`);
+        }
+    }
+
+    window.loadOrderForEdit = async function (orderId) {
+        try {
+            const orderResponse = await fetch(`/get_order_details?order_id=${orderId}`);
+            const orderData = await orderResponse.json();
+            if (orderData.status !== 'success') {
+                alert(orderData.message);
+                return;
+            }
+            const order = orderData.order;
+
+            const dataResponse = await fetch('/load_data');
+            const data = await dataResponse.json();
+
+            const formWindow = window.open('', '_blank');
+            formWindow.document.write(`
+            <html>
+                <head><title>Редактировать заказ</title></head>
+                <body>
+                    <h2>Редактирование заказа #${orderId}</h2>
+                    <form id="editOrderForm">
+                        <label>Подрядчик:
+                            <select name="contractor" required>
+                                ${data.contractors.map(c => `<option value="${c}" ${c === order.contractor ? 'selected' : ''}>${c}</option>`).join('')}
+                            </select>
+                        </label><br>
+                        <label>Материалы (выберите несколько):
+                            <select name="materials" multiple size="5" required>
+                                ${Object.entries(data.materials).map(([name, price]) => {
+                const selected = order.materials.includes(name) ? 'selected' : '';
+                return `<option value="${name}" ${selected}>${name} (${price} руб.)</option>`;
+            }).join('')}
+                            </select>
+                        </label><br>
+                        <label>Объект:
+                            <select name="object" required>
+                                ${data.objects.map(o => `<option value="${o}" ${o === order.object ? 'selected' : ''}>${o}</option>`).join('')}
+                            </select>
+                        </label><br>
+                        <label>Тип работы:
+                            <select name="work_type" required>
+                                ${Object.entries(data.types_of_work).map(([name, multiplier]) => {
+                const selected = name === order.work_type ? 'selected' : '';
+                return `<option value="${name}" ${selected}>${name} (x${multiplier})</option>`;
+            }).join('')}
+                            </select>
+                        </label><br>
+                        <label>Цена за м²:
+                            <input type="number" name="customer_price" step="0.01" value="${order.customer_price}" required>
+                        </label><br>
+                        <label>Площадь:
+                            <input type="number" name="area" step="0.01" value="${order.area}" required>
+                        </label><br>
+                        <button type="submit">Сохранить изменения</button>
+                    </form>
+                </body>
+            </html>
+        `);
+
+            formWindow.document.getElementById('editOrderForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                const materials = Array.from(formData.getAll('materials'))
+                    .reduce((acc, name) => ({...acc, [name]: data.materials[name]}), {});
+                const updatedOrder = {
+                    order_id: orderId,
+                    user_id: currentUser.id,
+                    contractor: formData.get('contractor'),
+                    materials: materials,
+                    object: formData.get('object'),
+                    work_type: formData.get('work_type'),
+                    customer_price: parseFloat(formData.get('customer_price')),
+                    area: parseFloat(formData.get('area'))
+                };
+
+                if (!updatedOrder.contractor || Object.keys(updatedOrder.materials).length === 0 ||
+                    !updatedOrder.object || !updatedOrder.work_type || isNaN(updatedOrder.customer_price) ||
+                    isNaN(updatedOrder.area)) {
+                    alert('Все поля обязательны!');
+                    return;
+                }
+
+                const response = await fetch('/update_order', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(updatedOrder)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('Заказ успешно обновлен!');
+                    formWindow.close();
+                } else {
+                    alert(`Ошибка: ${result.message}`);
+                }
+            });
+        } catch (error) {
+            alert(`Ошибка: ${error.message}`);
+        }
+    };
+
+    // Обновление статуса заказа
+    async function updateOrderStatus(orderId) {
+        const response = await fetch(`/update_status/${orderId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({status: 'Ожидает подтверждения'})
+        });
+        const data = await response.json();
+        console.log(data);
+    }
+
+    // Админ панель
+   function adminPanel() {
+    const adminWindow = window.open('', '_blank');
+    adminWindow.document.write(`
+        <html>
+            <head><title>Админ панель</title></head>
+            <body>
+                <h2>Админ панель</h2>
+                <button onclick="window.opener.loadAdminOrders()">Управление заказами</button>
+                <button onclick="window.opener.showAddMaterialForm()">Добавить материал</button>
+                <button onclick="window.opener.showAddContractorForm()">Добавить подрядчика</button>
+            </body>
+        </html>
+    `);
+}
+
+       window.loadAdminOrders = async function() {
+    try {
+        const response = await fetch('/view_orders');
+        const orders = await response.json();
+
+        // Сортировка по ID заказа
+        orders.sort((a, b) => a.id - b.id);
+
+        const adminWindow = window.open('', '_blank');
+        adminWindow.document.write(`
+            <html>
+                <head>
+                    <title>Все заказы</title>
+                    <style>
+                        .status-form { display: inline-block; margin-left: 10px; }
+                        .status-select { padding: 5px; }
+                        .action-buttons { white-space: nowrap; }
+                    </style>
+                </head>
+                <body>
+                    <h2>Список всех заказов</h2>
+                    <table border="1">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Пользователь</th>
+                                <th>Подрядчик</th>
+                                <th>Материалы</th>
+                                <th>Объект</th>
+                                <th>Тип работы</th>
+                                <th>Цена за м²</th>
+                                <th>Площадь</th>
+                                <th>Стоимость</th>
+                                <th>Статус</th>
+                                <th class="action-buttons">Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="adminOrdersTable"></tbody>
+                    </table>
+
+                    <script>
+                        // Функция удаления заказа
+                        async function deleteAdminOrder(orderId) {
+                            if (!confirm('Вы уверены, что хотите удалить этот заказ?')) {
+                                return;
+                            }
+
+                            try {
+                                const response = await fetch('/delete_order/' + orderId, {
+                                    method: 'DELETE',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        user_id: ${currentUser.id}
+                                    })
+                                });
+
+                                const result = await response.json();
+                                if (result.status === 'success') {
+                                    alert('Заказ успешно удален');
+                                    window.location.reload();
+                                } else {
+                                    alert('Ошибка: ' + result.message);
+                                }
+                            } catch (error) {
+                                console.error('Ошибка:', error);
+                                alert('Не удалось удалить заказ.');
+                            }
+                        }
+
+                        // Функция изменения статуса
+                        async function changeAdminOrderStatus(event, orderId) {
+                            event.preventDefault();
+                            const form = event.target;
+                            const statusSelect = form.querySelector('.status-select');
+                            const newStatus = statusSelect.value;
+
+                            try {
+                                const response = await fetch('/update_status/' + orderId, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({
+                                        status: newStatus,
+                                        user_id: ${currentUser.id}
+                                    })
+                                });
+
+                                const result = await response.json();
+                                if (result.status === 'success') {
+                                    alert('Статус успешно изменён!');
+                                    window.location.reload();
+                                } else {
+                                    alert('Ошибка: ' + result.message);
+                                }
+                            } catch (error) {
+                                console.error('Ошибка:', error);
+                                alert('Не удалось изменить статус.');
+                            }
+                        }
+                    <\/script>
+                </body>
+            </html>
+        `);
+
+        // Загружаем доступные статусы
+        const statusResponse = await fetch('/load_statuses');
+        const statusData = await statusResponse.json();
+        const statuses = statusData.statuses || [];
+        const tbody = adminWindow.document.getElementById('adminOrdersTable');
+
+        orders.forEach(order => {
+            const statusForm = `
+                <form class="status-form" onsubmit="changeAdminOrderStatus(event, ${order.id})">
+                    <select name="status" class="status-select">
+                        ${statuses.map(s => `<option value="${s}" ${s === order.status ? 'selected' : ''}>${s}</option>`).join('')}
+                    </select>
+                    <button type="submit">✔</button>
+                </form>
+            `;
+
+            const row = `
+                <tr>
+                    <td>${order.id}</td>
+                    <td>${order.user}</td>
+                    <td>${order.contractor}</td>
+                    <td>${order.materials}</td>
+                    <td>${order.object}</td>
+                    <td>${order.work_type}</td>
+                    <td>${order.customer_price} руб.</td>
+                    <td>${order.area} м²</td>
+                    <td>${order.cost} руб.</td>
+                    <td>${order.status}</td>
+                    <td class="action-buttons">
+                        <button onclick="window.opener.editAdminOrder(${order.id})">Редактировать</button>
+                        ${statusForm}
+                        <button onclick="deleteAdminOrder(${order.id})" style="color: red;">Удалить</button>
+                    </td>
+                </tr>
+            `;
+            tbody.innerHTML += row;
+        });
+    } catch (error) {
+        alert(`Ошибка загрузки заказов: ${error.message}`);
+    }
+}
+
+// Функция удаления заказа
+async function deleteAdminOrder(orderId) {
+    if (!confirm('Вы уверены, что хотите удалить этот заказ?')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/delete_order/${orderId}`, {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({user_id: currentUser.id})
+        });
+
+        const result = await response.json();
+        if (result.status === 'success') {
+            alert('Заказ успешно удален');
+            window.location.reload(); // Обновляем страницу
+        } else {
+            alert(`Ошибка: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('Ошибка удаления заказа:', error);
+        alert('Не удалось удалить заказ');
+    }
+}
+
+async function changeAdminOrderStatus(event, orderId) {
+    event.preventDefault();
+    const form = event.target;
+    const statusSelect = form.querySelector('.status-select');
+    const newStatus = statusSelect.value;
+
+    try {
+        const response = await fetch(`/update_status/${orderId}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                status: newStatus,
+                user_id: currentUser.id
+            })
+        });
+
+        const result = await response.json();
+        if (result.status === 'success') {
+            const statusCell = form.closest('tr').querySelector('td:nth-child(8)');
+            statusCell.textContent = newStatus;
+            alert('Статус успешно изменён!');
+        } else {
+            alert(`Ошибка: ${result.message}`);
+        }
+    } catch (error) {
+        alert(`Ошибка изменения статуса: ${error.message}`);
+    }
+}
+
+window.onload = () => {
+    const savedUser = localStorage.getItem('currentUser');
+    if (savedUser) {
+        currentUser = JSON.parse(savedUser);
+        document.getElementById('auth').classList.add('hidden');
+        document.getElementById('main').classList.remove('hidden');
+        document.getElementById('editOrderBtn').classList.remove('hidden');
+        if (currentUser.role === 'admin') {
+            document.getElementById('adminBtn').classList.remove('hidden');
+        }
+    }
+};
+
+        window.showAddMaterialForm = function() {
+        const formWindow = window.open('', '_blank');
+        formWindow.document.write(`
+            <html>
+                <head><title>Добавить материал</title></head>
+                <body>
+                    <h2>Добавить материал</h2>
+                    <form id="addMaterialForm">
+                        <label>Название:
+                            <input type="text" name="name" required>
+                        </label><br>
+                        <label>Цена:
+                            <input type="number" name="price" step="0.01" required>
+                        </label><br>
+                        <button type="submit">Добавить</button>
+                    </form>
+                </body>
+            </html>
+        `);
+
+        formWindow.document.getElementById('addMaterialForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const material = {
+        name: formData.get('name'),
+        price: parseFloat(formData.get('price'))
+    };
+
+        const response = await fetch('/add_material', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(material)
+    });
+        const result = await response.json();
+        if (result.status === 'success') {
+        alert('Материал успешно добавлен!');
+        formWindow.close();
+    } else {
+        alert(`Ошибка: ${result.message}`);
+    }
+    });
+    };
+
+        window.showAddContractorForm = function() {
+        const formWindow = window.open('', '_blank');
+        formWindow.document.write(`
+            <html>
+                <head><title>Добавить подрядчика</title></head>
+                <body>
+                    <h2>Добавить подрядчика</h2>
+                    <form id="addContractorForm">
+                        <label>Название:
+                            <input type="text" name="name" required>
+                        </label><br>
+                        <button type="submit">Добавить</button>
+                    </form>
+                </body>
+            </html>
+        `);
+
+        formWindow.document.getElementById('addContractorForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const contractor = {
+        name: formData.get('name')
+    };
+
+        const response = await fetch('/add_contractor', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(contractor)
+    });
+        const result = await response.json();
+        if (result.status === 'success') {
+        alert('Подрядчик успешно добавлен!');
+        formWindow.close();
+    } else {
+        alert(`Ошибка: ${result.message}`);
+    }
+    });
+    };
+
+    window.editAdminOrder = async function(orderId) {
+    try {
+        const orderResponse = await fetch(`/get_order_details?order_id=${orderId}`);
+        const orderData = await orderResponse.json();
+        if (orderData.status !== 'success') {
+            alert(orderData.message);
+            return;
+        }
+        const order = orderData.order;
+
+        const dataResponse = await fetch('/load_data');
+        const data = await dataResponse.json();
+
+        const formWindow = window.open('', '_blank');
+        formWindow.document.write(`
+            <html>
+                <head><title>Редактировать заказ</title></head>
+                <body>
+                    <h2>Редактирование заказа #${orderId}</h2>
+                    <form id="adminEditOrderForm">
+                        <label>Подрядчик:
+                            <select name="contractor" required>
+                                ${data.contractors.map(c => `<option value="${c}" ${c === order.contractor ? 'selected' : ''}>${c}</option>`).join('')}
+                            </select>
+                        </label><br>
+                        <label>Материалы (выберите несколько):
+                            <select name="materials" multiple size="5" required>
+                                ${Object.entries(data.materials).map(([name, price]) => {
+                                    const selected = order.materials.includes(name) ? 'selected' : '';
+                                    return `<option value="${name}" ${selected}>${name} (${price} руб.)</option>`;
+                                }).join('')}
+                            </select>
+                        </label><br>
+                        <label>Объект:
+                            <select name="object" required>
+                                ${data.objects.map(o => `<option value="${o}" ${o === order.object ? 'selected' : ''}>${o}</option>`).join('')}
+                            </select>
+                        </label><br>
+                        <label>Тип работы:
+                            <select name="work_type" required>
+                                ${Object.entries(data.types_of_work).map(([name, multiplier]) => {
+                                    const selected = name === order.work_type ? 'selected' : '';
+                                    return `<option value="${name}" ${selected}>${name} (x${multiplier})</option>`;
+                                }).join('')}
+                            </select>
+                        </label><br>
+                        <label>Цена за м²:
+                            <input type="number" name="customer_price" step="0.01" value="${order.customer_price}" required>
+                        </label><br>
+                        <label>Площадь:
+                            <input type="number" name="area" step="0.01" value="${order.area}" required>
+                        </label><br>
+                        <button type="submit">Сохранить изменения</button>
+                    </form>
+                </body>
+            </html>
+        `);
+
+        formWindow.document.getElementById('adminEditOrderForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const materials = Array.from(formData.getAll('materials'))
+                                  .reduce((acc, name) => ({...acc, [name]: data.materials[name]}), {});
+            const updatedOrder = {
+                order_id: orderId,
+                user_id: currentUser.id,
+                contractor: formData.get('contractor'),
+                materials: materials,
+                object: formData.get('object'),
+                work_type: formData.get('work_type'),
+                customer_price: parseFloat(formData.get('customer_price')),
+                area: parseFloat(formData.get('area'))
+            };
+
+            if (!updatedOrder.contractor || Object.keys(updatedOrder.materials).length === 0 ||
+                !updatedOrder.object || !updatedOrder.work_type || isNaN(updatedOrder.customer_price) ||
+                isNaN(updatedOrder.area)) {
+                alert('Все поля обязательны!');
+                return;
+            }
+
+            const response = await fetch('/update_order', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(updatedOrder)
+            });
+            const result = await response.json();
+            if (result.status === 'success') {
+                alert('Заказ успешно обновлен!');
+                formWindow.close();
+            } else {
+                alert(`Ошибка: ${result.message}`);
+            }
+        });
+    } catch (error) {
+        alert(`Ошибка: ${error.message}`);
+    }
+};
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ панель</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body>
+    <h1>Админ панель</h1>
+
+    <!-- Управление подрядчиками -->
+    <h2>Подрядчики</h2>
+    <button onclick="addContractor()">Добавить подрядчика</button>
+    <button onclick="manageContractors()">Управление подрядчиками</button>
+
+    <!-- Управление материалами -->
+    <h2>Материалы</h2>
+    <button onclick="addMaterial()">Добавить материал</button>
+    <button onclick="manageMaterials()">Управление материалами</button>
+
+    <script>
+        // Добавление подрядчика
+        function addContractor() {
+            const name = prompt('Введите имя нового подрядчика:');
+            if (!name) {
+                alert('Введите имя!');
+                return;
+            }
+
+            $.ajax({
+                url: '/api/add_contractor',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ name }),
+                success: function(response) {
+                    if (response.status === 'success') {
+                        alert(response.message);
+                    } else {
+                        alert(response.message);
+                    }
+                },
+                error: function() {
+                    alert('Ошибка при выполнении запроса');
+                }
+            });
+        }
+
+        // Управление подрядчиками
+        function manageContractors() {
+            sendRequest('/api/load_data', 'GET')
+                .done(function(response) {
+                    if (response.status === 'success') {
+                        let contractorsHtml = '<ul>';
+                        response.contractors.forEach(contractor => {
+                            contractorsHtml += `<li>${contractor}</li>`;
+                        });
+                        contractorsHtml += '</ul>';
+                        alert('Подрядчики:\n' + contractorsHtml);
+                    } else {
+                        alert(response.message);
+                    }
+                })
+                .fail(function() {
+                    alert('Ошибка при выполнении запроса');
+                });
+        }
+
+        // Добавление материала
+        function addMaterial() {
+            const name = prompt('Введите название материала:');
+            const price = parseFloat(prompt('Введите цену материала:'));
+
+            if (!name || isNaN(price)) {
+                alert('Заполните все поля!');
+                return;
+            }
+
+            $.ajax({
+                url: '/api/add_material',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ name, price }),
+                success: function(response) {
+                    if (response.status === 'success') {
+                        alert(response.message);
+                    } else {
+                        alert(response.message);
+                    }
+                },
+                error: function() {
+                    alert('Ошибка при выполнении запроса');
+                }
+            });
+        }
+
+        // Управление материалами
+        function manageMaterials() {
+            sendRequest('/api/load_data', 'GET')
+                .done(function(response) {
+                    if (response.status === 'success') {
+                        let materialsHtml = '<ul>';
+                        Object.entries(response.materials).forEach(([name, price]) => {
+                            materialsHtml += `<li>${name}: ${price}</li>`;
+                        });
+                        materialsHtml += '</ul>';
+                        alert('Материалы:\n' + materialsHtml);
+                    } else {
+                        alert(response.message);
+                    }
+                })
+                .fail(function() {
+                    alert('Ошибка при выполнении запроса');
+                });
+        }
+
+        // Отправка запроса
+        function sendRequest(url, method) {
+            return $.ajax({
+                url: url,
+                method: method,
+                contentType: 'application/json',
+                timeout: 5000
+            });
+        }
+    </script>
+</body>
+</html>

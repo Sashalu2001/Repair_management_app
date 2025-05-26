@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Вход</title>
+</head>
+<body>
+    <h1>Вход</h1>
+    <form id="loginForm" method="POST"> <!-- Добавлено method="POST" -->
+        Логин: <input type="text" name="login" required><br>
+        Пароль: <input type="password" name="password" required><br>
+        <button type="submit">Войти</button>
+    </form>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const response = await fetch('/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams(new FormData(e.target))
+            });
+            const data = await response.json();
+            if (data.status === 'success') {
+                window.location.href = '/dashboard';
+            } else {
+                alert(data.message);
+            }
+        });
+    </script>
+</body>
+</html>

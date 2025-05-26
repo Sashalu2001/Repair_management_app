@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Управление подрядчиками</title>
+</head>
+<body>
+    <h1>Подрядчики</h1>
+    <ul id="contractorsList"></ul>
+    <div>
+        <input type="text" id="newContractor" placeholder="Новый подрядчик">
+        <button onclick="addContractor()">Добавить</button>
+    </div>
+    <script>
+        async function loadContractors() {
+            const contractors = await fetch('/data').then(res => res.json()).then(data => data.contractors);
+            const list = document.getElementById('contractorsList');
+            list.innerHTML = contractors.map(c => `<li>${c}</li>`).join('');
+        }
+        loadContractors();
+
+        function addContractor() {
+            const name = document.getElementById('newContractor').value;
+            fetch('/admin/update_list', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: 'contractors',
+                    new_values: [name]
+                })
+            }).then(() => loadContractors());
+        }
+    </script>
+</body>
+</html>
+
+    <script>
+        async function loadOrders() {
+            const response = await fetch('/view_orders');
+            const data = await response.json();
+            const tableBody = document.getElementById('ordersTable');
+            tableBody.innerHTML = '';
+            data.orders.forEach(order => {
+                const row = `
+                    <tr>
+                        <td>${order.user}</td>
+                        <td>${order.contractor}</td>
+                        <td>${order.materials}</td>
+                        <td>${order.object}</td>
+                        <td>${order.work_type}</td>
+                        <td>${order.customer_price}</td>
+                        <td>${order.area}</td>
+                        <td>${order.cost}</td>
+                        <td>${order.status}</td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+        loadOrders();
+    </script>
+</body>
+</html>

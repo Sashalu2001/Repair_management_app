@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Главная</title>
+</head>
+<body>
+    <h1>Расчет стоимости ремонтных работ</h1>
+
+    <button onclick="window.location.href='/create_order'">Создать заказ</button>
+    <button onclick="window.location.href='/view_orders'">Просмотреть заказы</button>
+
+    <script>
+        // Проверка аутентификации
+        const user = JSON.parse(localStorage.getItem('user'));
+        if (!user) window.location.href = '/login';
+    </script>
+</body>
+</html>
